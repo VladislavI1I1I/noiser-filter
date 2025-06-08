@@ -1,7 +1,13 @@
 package ru.itmo.labs;
 
 import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Random;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class SignalUtils {
     public static double[] generateCleanSignal(int n, double dt, double[] amplitudes, double[] frequencies) {
@@ -40,4 +46,48 @@ public class SignalUtils {
 
         return noisy;
     }
+
+    public static double[] readNpySignal(String filePath) throws IOException {
+        try (RandomAccessFile raf = new RandomAccessFile(filePath, "r")) {
+            byte[] magic = new byte[6];
+            raf.readFully(magic);
+            byte[] expectedMagic = {(byte) 0x93, 'N', 'U', 'M', 'P', 'Y'};
+            if (!Arrays.equals(magic, expectedMagic)) {
+                throw new IOException("Not a NUMPY file.");
+            }
+
+            raf.readByte();
+            raf.readByte();
+
+            int headerLen = raf.read() | (raf.read() << 8);
+            byte[] headerBytes = new byte[headerLen];
+            raf.readFully(headerBytes);
+            String header = new String(headerBytes, StandardCharsets.UTF_8).trim();
+
+            Matcher matcher = Pattern.compile("'shape': \\((\\d+),?\\)").matcher(header);
+            if (!matcher.find()) {
+                throw new IOException("Could not find shape in header.");
+            }
+            int numElements = Integer.parseInt(matcher.group(1));
+
+            double[] signal = new double[numElements];
+            ByteBuffer dataBuffer = ByteBuffer.allocate(numElements * 8);
+            dataBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            raf.getChannel().read(dataBuffer);
+            dataBuffer.flip();
+
+            for (int i = 0; i < numElements; i++) {
+                signal[i] = dataBuffer.getDouble();
+            }
+            return signal;
+        }
+    }
+    public static double[] cropToPowerOfTwo(double[] input) {
+        int powerOfTwo = 1;
+        while (powerOfTwo * 2 < input.length) {
+            powerOfTwo *= 2;
+        }
+        return Arrays.copyOf(input, powerOfTwo);
+    }
+
 }
